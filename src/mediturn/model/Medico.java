@@ -12,9 +12,7 @@ public class Medico extends Persona {
     
     private String matricula;
 
-    // PLACEHOLDER: cuando definamos la clase Especialidad,
-    // esto pasa a ser List<Especialidad>.
-    private List<String> especialidades;
+    private List<Especialidad> especialidades;
 
     public Medico(int dni, String nombre, String apellido, String matricula) {
         // super(...) llama al constructor de Persona. Es obligatorio
@@ -33,11 +31,11 @@ public class Medico extends Persona {
         this.matricula = matricula;
     }
 
-    public List<String> getEspecialidades() {
+    public List<Especialidad> getEspecialidades() {
         return especialidades;
     }
 
-    public void agregarEspecialidad(String especialidad) {
+    public void agregarEspecialidad(Especialidad especialidad) {
         especialidades.add(especialidad);
     }
 
@@ -53,6 +51,17 @@ public class Medico extends Persona {
         return "Médico - " + super.toString()
                 + " - Matrícula: " + matricula
                 + " - Especialidades: " + especialidades;
+    }
+
+    /**
+    * Calcula el costo de la consulta para un médico general.
+    * Este método existe en la clase base para que las subclases
+    * (como MedicoEspecialista) puedan sobreescribirlo con @Override
+    * y así aplicar polimorfismo: cada tipo de médico calcula su costo
+    * de forma distinta, pero se invoca de la misma manera.
+    */
+    public double calcularCosto() {
+        return 5000.0; // valor base de consulta general, ajustá según tu caso
     }
 }
 
