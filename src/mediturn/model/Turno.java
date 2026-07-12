@@ -2,6 +2,8 @@ package mediturn.model;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import mediturn.util.CsvUtil;
+import mediturn.util.FormateadorFecha;
 
 public abstract class Turno {
     
@@ -43,8 +45,14 @@ public abstract class Turno {
      * llamando a getDetalle() de la subclase correspondiente.
      */
     public String toLineaArchivo() {
-        return fecha + ";" + hora + ";" + paciente.getDni() + ";" 
-             + medico.getDni() + ";" + estado + ";" + getDetalle();
+        
+        return CsvUtil.unirCampos(
+                FormateadorFecha.formatearFecha(fecha),
+                FormateadorFecha.formatearHora(hora),
+                String.valueOf(paciente.getDni()),
+                String.valueOf(medico.getDni()),
+                estado.name(),
+                getDetalle());
     }
 
 }

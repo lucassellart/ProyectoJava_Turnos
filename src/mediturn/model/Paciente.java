@@ -3,25 +3,23 @@ package mediturn.model;
 /**
  * Representa a un paciente de la clínica.
  */
-
 public class Paciente extends Persona {
-    
-    private String obraSocial;
+    private CoberturaMedica coberturaMedica;
     private String telefono;
 
     public Paciente(int dni, String nombre, String apellido,
-                     String obraSocial, String telefono) {
+                     CoberturaMedica coberturaMedica, String telefono) {
         super(dni, nombre, apellido);
-        this.obraSocial = obraSocial;
+        this.coberturaMedica = coberturaMedica;
         this.telefono = telefono;
     }
 
-    public String getObraSocial() {
-        return obraSocial;
+    public CoberturaMedica getCoberturaMedica() {
+        return coberturaMedica;
     }
 
-    public void setObraSocial(String obraSocial) {
-        this.obraSocial = obraSocial;
+    public void setCoberturaMedica(CoberturaMedica coberturaMedica) {
+        this.coberturaMedica = coberturaMedica;
     }
 
     public String getTelefono() {
@@ -35,8 +33,7 @@ public class Paciente extends Persona {
     @Override
     public String mostrarInfo() {
         return "Paciente - " + super.toString()
-                + " - Obra social: " + obraSocial
+                + " - Cobertura: " + coberturaMedica.getNombreLegible()
                 + " - Tel: " + telefono;
     }
-
 }
