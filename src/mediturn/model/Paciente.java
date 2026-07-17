@@ -32,8 +32,12 @@ public class Paciente extends Persona {
 
     @Override
     public String mostrarInfo() {
+        
+        String estado = activo ? "" : " (inactivo)";
+        
         return "Paciente - " + super.toString()
-                + " - Cobertura: " + coberturaMedica.getNombreLegible()
-                + " - Tel: " + telefono;
+            + " - Cobertura: " + coberturaMedica.getNombreLegible()
+            + " - Tel: " + telefono
+            + estado;
     }
 }

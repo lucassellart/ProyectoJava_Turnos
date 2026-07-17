@@ -48,9 +48,13 @@ public class Medico extends Persona {
      */
     @Override
     public String mostrarInfo() {
+        
+        String estado = activo ? "" : " (inactivo)";
+        
         return "Médico - " + super.toString()
-                + " - Matrícula: " + matricula
-                + " - Especialidades: " + especialidades;
+            + " - Matrícula: " + matricula
+            + " - Especialidades: " + especialidades
+            + estado;
     }
 
     /**

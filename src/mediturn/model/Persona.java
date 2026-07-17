@@ -7,11 +7,13 @@ public abstract class Persona {
     protected int dni;
     protected String nombre;
     protected String apellido;
+    protected boolean activo;
 
     public Persona(int d_dni, String n_nombre, String a_apellido) {
         this.dni = d_dni;
         this.nombre = n_nombre;
         this.apellido = a_apellido;
+        this.activo = true;
     }
 
     public int getDni() {
@@ -36,6 +38,14 @@ public abstract class Persona {
 
     public void setApellido(String apellido) {
         this.apellido = apellido;
+    }
+
+    public boolean isActivo() {
+        return activo;
+    }
+
+    public void setActivo(boolean activo) {
+        this.activo = activo;
     }
 
     public abstract String mostrarInfo();

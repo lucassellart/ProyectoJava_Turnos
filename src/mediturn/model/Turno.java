@@ -25,11 +25,27 @@ public abstract class Turno {
     }
 
     public LocalDate getFecha() { return fecha; }
+    
     public LocalTime getHora() { return hora; }
+    
     public Paciente getPaciente() { return paciente; }
+    
     public Medico getMedico() { return medico; }
+    
     public EstadoTurno getEstado() { return estado; }
+    
     public void setEstado(EstadoTurno estado) { this.estado = estado; }
+    
+    public void setFecha(LocalDate fecha) {
+        this.fecha = fecha;
+    }
+
+    public void setHora(LocalTime hora) {
+        this.hora = hora;
+    }
+
+    /** Cada subclase dice qué tipo de turno es: "Presencial" o "Virtual". */
+    public abstract String getTipoTurno();
 
     /**
      * Método abstracto: cada subclase (Presencial/Virtual) debe definir
@@ -52,6 +68,7 @@ public abstract class Turno {
                 String.valueOf(paciente.getDni()),
                 String.valueOf(medico.getDni()),
                 estado.name(),
+                getTipoTurno(),
                 getDetalle());
     }
 

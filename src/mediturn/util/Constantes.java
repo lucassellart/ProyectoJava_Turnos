@@ -16,6 +16,9 @@ public final class Constantes {
     public static final String ARCHIVO_AGENDA = "agenda.txt";
     public static final String ARCHIVO_HISTORIAL = "historial.txt";
 
+    public static final String ARCHIVO_PACIENTES = "pacientes.txt";
+    public static final String ARCHIVO_MEDICOS = "medicos.txt";
+
     // Patrones de formato para fechas y horas (ver FormateadorFecha)
     public static final String PATRON_FECHA = "yyyy-MM-dd";
     public static final String PATRON_HORA = "HH:mm";

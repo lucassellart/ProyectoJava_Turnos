@@ -17,8 +17,13 @@ public class TurnoVirtual extends Turno {
     public void setLinkVideollamada(String linkVideollamada) { this.linkVideollamada = linkVideollamada; }
 
     @Override
+    public String getTipoTurno() {
+        return "Virtual";
+    }
+
+    @Override
     public String getDetalle() {
-        return "Virtual;Link:" + linkVideollamada;
+        return "Link:" + linkVideollamada;
     }
 
 }

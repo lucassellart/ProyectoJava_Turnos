@@ -17,8 +17,13 @@ public class TurnoPresencial extends Turno {
     public void setConsultorio(String consultorio) { this.consultorio = consultorio; }
 
     @Override
+    public String getTipoTurno() {
+        return "Presencial";
+    }
+
+    @Override
     public String getDetalle() {
-        return "Presencial;Consultorio:" + consultorio;
+        return "Consultorio:" + consultorio;
     }
 
 }
