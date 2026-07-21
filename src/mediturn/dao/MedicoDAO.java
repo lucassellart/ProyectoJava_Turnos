@@ -46,10 +46,20 @@ public class MedicoDAO {
     }
 
     public List<Medico> listarTodos() {
+        return listarDesdeArchivo(Constantes.ARCHIVO_MEDICOS);
+    }
+
+    /**
+     * Igual que listarTodos(), pero permite indicar la ruta del
+     * archivo. Se usa tanto para medicos.txt como para el archivo
+     * de ejemplo con el que se precarga la clínica la primera vez.
+     * Si el archivo no existe todavía, devuelve lista vacía sin
+     * imprimir nada: es un estado normal, no un error.
+     */
+    public List<Medico> listarDesdeArchivo(String ruta) {
         List<Medico> medicos = new ArrayList<>();
 
-        try (BufferedReader reader = new BufferedReader(
-                new FileReader(Constantes.ARCHIVO_MEDICOS))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(ruta))) {
             String linea;
             while ((linea = reader.readLine()) != null) {
                 Medico medico = parsearLinea(linea);
@@ -58,8 +68,7 @@ public class MedicoDAO {
                 }
             }
         } catch (IOException e) {
-            System.out.println("Aún no existe " + Constantes.ARCHIVO_MEDICOS
-                    + " (se creará al guardar el primer médico).");
+            // El archivo todavía no existe: se ignora en silencio.
         }
 
         return medicos;

@@ -22,3 +22,16 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+# Archivos de datos en tiempo de ejecución (persistencia del sistema).
+# Se generan/reescriben cada vez que corre el programa, así que no
+# tiene sentido versionarlos: cada uno que clona el repo debería
+# arrancar con la clínica "recién precargada" desde los archivos de
+# ejemplo, no con los datos de prueba de otra persona.
+agenda.txt
+historial.txt
+pacientes.txt
+medicos.txt
+
+# Compilados (carpeta de salida de javac -d bin)
+bin/

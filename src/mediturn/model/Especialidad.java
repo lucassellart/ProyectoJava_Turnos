@@ -13,7 +13,8 @@ public enum Especialidad {
     PEDIATRIA("Pediatría"),
     TRAUMATOLOGIA("Traumatología"),
     DERMATOLOGIA("Dermatología"),
-    GINECOLOGIA("Ginecología");
+    GINECOLOGIA("Ginecología"),
+    OFTALMOLOGIA("Oftalmología");
 
     // Nombre "legible" para mostrar en el sistema (con tildes y formato correcto)
     private final String nombreLegible;

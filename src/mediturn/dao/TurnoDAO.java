@@ -96,7 +96,8 @@ public class TurnoDAO {
                 }
             }
         } catch (IOException e) {
-            System.out.println("Aún no existe " + archivo + " (se creará al guardar el primer turno).");
+            // El archivo todavía no existe: se ignora en silencio,
+            // es el estado normal antes de crear el primer turno.
         }
         return turnos;
     }

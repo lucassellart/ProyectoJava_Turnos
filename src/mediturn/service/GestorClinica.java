@@ -19,6 +19,7 @@ import mediturn.model.Medico;
 import mediturn.model.MedicoEspecialista;
 import mediturn.model.Paciente;
 import mediturn.model.Turno;
+import mediturn.util.Constantes;
 
 /**
  * Patrón Singleton: garantiza que exista UNA sola instancia de
@@ -84,21 +85,54 @@ public class GestorClinica {
      */
     private void cargarDatosDesdeArchivos() {
         this.pacientes = pacienteDAO.listarComoMapa();
+        if (pacientes.isEmpty()) {
+            precargarPacientesDeEjemplo();
+        }
+
         this.medicos = medicoDAO.listarComoMapa();
+        if (medicos.isEmpty()) {
+            precargarMedicosDeEjemplo();
+        }
+
         this.agenda = new ArrayList<>(turnoDAO.listarAgenda(pacientes, medicos));
         this.historial = new ArrayList<>(turnoDAO.listarHistorial(pacientes, medicos));
+    }
+
+    /**
+     * Precarga pacientes desde pacientes-ejemplo.txt la primera vez
+     * que corre el sistema (cuando pacientes.txt todavía no existe
+     * o está vacío). Simula una clínica real que ya tiene pacientes
+     * cargados de antes, en vez de arrancar sin nadie registrado.
+     * Cada paciente de ejemplo se guarda también en pacientes.txt,
+     * así queda asentado como cualquier paciente registrado normal.
+     */
+    private void precargarPacientesDeEjemplo() {
+        List<Paciente> ejemplo = pacienteDAO.listarDesdeArchivo(Constantes.ARCHIVO_PACIENTES_EJEMPLO);
+        for (Paciente p : ejemplo) {
+            pacientes.put(p.getDni(), p);
+            pacienteDAO.guardar(p);
+        }
+    }
+
+    /** Igual que precargarPacientesDeEjemplo(), pero para médicos. */
+    private void precargarMedicosDeEjemplo() {
+        List<Medico> ejemplo = medicoDAO.listarDesdeArchivo(Constantes.ARCHIVO_MEDICOS_EJEMPLO);
+        for (Medico m : ejemplo) {
+            medicos.put(m.getDni(), m);
+            medicoDAO.guardar(m);
+        }
     }
 
     // =========================================================
     //  PACIENTES
     // =========================================================
 
-    public Paciente registrarPaciente(int dni, String nombre, String apellido,
-                                       String telefono, CoberturaMedica cobertura) {
+    public Paciente registrarPaciente(int dni, String nombre, String apellido, String telefono,
+                                       CoberturaMedica cobertura, LocalDate fechaNacimiento) {
         if (pacientes.containsKey(dni)) {
             throw new IllegalArgumentException("Ya existe un paciente con DNI " + dni);
         }
-        Paciente paciente = new Paciente(dni, nombre, apellido, cobertura, telefono);
+        Paciente paciente = new Paciente(dni, nombre, apellido, cobertura, telefono, fechaNacimiento);
         pacientes.put(dni, paciente);
         pacienteDAO.guardar(paciente); // persiste ya mismo (append a pacientes.txt)
         return paciente;
@@ -106,6 +140,31 @@ public class GestorClinica {
 
     public Paciente buscarPacientePorDni(int dni) {
         return pacientes.get(dni);
+    }
+
+    /**
+     * Login del paciente: DNI + "contraseña" (día y mes de nacimiento,
+     * igual que en Logimed). Devuelve el Paciente si el DNI existe y
+     * la contraseña coincide.
+     *
+     * @return el Paciente autenticado, o null si el DNI no existe
+     *         (en ese caso Main.java ofrece registrarlo).
+     * @throws IllegalArgumentException si el DNI existe pero la
+     *         contraseña no coincide.
+     * @throws IllegalStateException si el paciente está dado de baja.
+     */
+    public Paciente loginPaciente(int dni, int diaNacimiento, int mesNacimiento) {
+        Paciente paciente = pacientes.get(dni);
+        if (paciente == null) {
+            return null;
+        }
+        if (!paciente.isActivo()) {
+            throw new IllegalStateException("El paciente con DNI " + dni + " está dado de baja.");
+        }
+        if (!paciente.validarContrasena(diaNacimiento, mesNacimiento)) {
+            throw new IllegalArgumentException("Contraseña incorrecta.");
+        }
+        return paciente;
     }
 
     public List<Paciente> listarPacientes() {
@@ -150,6 +209,30 @@ public class GestorClinica {
         return Collections.unmodifiableList(new ArrayList<>(medicos.values()));
     }
 
+    /**
+     * Busca médicos activos que atiendan una especialidad dada.
+     * Contempla dos casos porque el modelo permite ambos: un Medico
+     * general al que se le agregaron especialidades sueltas (lista
+     * "especialidades"), y un MedicoEspecialista, cuya especialidad
+     * principal también cuenta aunque no esté cargada en esa lista.
+     */
+    public List<Medico> buscarMedicosPorEspecialidad(Especialidad especialidad) {
+        List<Medico> resultado = new ArrayList<>();
+        for (Medico m : medicos.values()) {
+            if (!m.isActivo()) {
+                continue;
+            }
+            boolean atiendeEspecialidad = m.getEspecialidades().contains(especialidad);
+            if (!atiendeEspecialidad && m instanceof MedicoEspecialista especialista) {
+                atiendeEspecialidad = especialista.getEspecialidadPrincipal() == especialidad;
+            }
+            if (atiendeEspecialidad) {
+                resultado.add(m);
+            }
+        }
+        return resultado;
+    }
+
     // =========================================================
     //  TURNOS
     // =========================================================
@@ -185,7 +268,27 @@ public class GestorClinica {
                 "El médico ya tiene un turno en " + fecha + " a las " + hora);
         }
 
+        // Regla de negocio: la VideoConsulta (turno virtual) solo está
+        // disponible para pacientes con cobertura Particular, igual
+        // que en el sistema de referencia (Logimed). Se valida acá,
+        // en el service, porque es una regla de negocio y no algo
+        // que le corresponda decidir al modelo ni a la Factory.
+        if (TurnoFactory.TIPO_VIRTUAL.equalsIgnoreCase(tipoTurno)
+                && paciente.getCoberturaMedica() != CoberturaMedica.PARTICULAR) {
+            throw new IllegalStateException(
+                "La VideoConsulta solo está disponible para pacientes con cobertura Particular.");
+        }
+
         Turno turno = TurnoFactory.crearTurno(tipoTurno, fecha, hora, paciente, medico, detalleExtra);
+
+        // El turno nace en PENDIENTE (valor por defecto del modelo), pero en
+        // este sistema no existe una instancia posterior de aprobación por
+        // parte de un empleado: si se llegó hasta acá es porque el paciente
+        // ya completó sus datos y eligió fecha/hora/médico entre las
+        // opciones válidas y disponibles, y ninguna validación anterior
+        // lanzó una excepción. Por eso se confirma en este mismo momento.
+        turno.setEstado(EstadoTurno.CONFIRMADO);
+
         agenda.add(turno);
         turnoDAO.guardarEnAgenda(turno);
         return turno;
@@ -213,10 +316,50 @@ public class GestorClinica {
         return false;
     }
 
+    /**
+     * Calcula los horarios disponibles de un médico en una fecha puntual,
+     * generando toda la franja de atención de la clínica (Constantes.HORA_APERTURA
+     * a HORA_CIERRE, en bloques de DURACION_TURNO_MINUTOS) y descartando los
+     * horarios donde ya hay un turno activo con ese médico. Esto reemplaza
+     * el ingreso de fecha/hora "a mano": el paciente elige de una lista de
+     * opciones ya validadas, en vez de escribir un horario que después haya
+     * que verificar (igual que el calendario de Logimed).
+     */
+    public List<LocalTime> obtenerHorariosDisponibles(Medico medico, LocalDate fecha) {
+        return obtenerHorariosDisponibles(medico, fecha, null);
+    }
+
+    /**
+     * Igual que obtenerHorariosDisponibles(medico, fecha), pero permite
+     * ignorar un turno puntual al chequear ocupación. Se usa al reprogramar:
+     * el propio horario actual del turno que se está moviendo no debe
+     * contar como "ocupado" para sí mismo.
+     */
+    public List<LocalTime> obtenerHorariosDisponibles(Medico medico, LocalDate fecha, Turno turnoAIgnorar) {
+        List<LocalTime> disponibles = new ArrayList<>();
+        LocalTime horaApertura = LocalTime.of(Constantes.HORA_APERTURA, 0);
+        LocalTime horaCierre = LocalTime.of(Constantes.HORA_CIERRE, 0);
+
+        LocalTime horario = horaApertura;
+        while (horario.isBefore(horaCierre)) {
+            if (!haySolapamiento(medico, fecha, horario, turnoAIgnorar)) {
+                disponibles.add(horario);
+            }
+            horario = horario.plusMinutes(Constantes.DURACION_TURNO_MINUTOS);
+        }
+        return disponibles;
+    }
+
     /** Reprograma un turno existente a una nueva fecha/hora. */
     public void reprogramarTurno(Turno turno, LocalDate nuevaFecha, LocalTime nuevaHora) {
         if (!agenda.contains(turno)) {
             throw new IllegalArgumentException("El turno no pertenece a la agenda activa.");
+        }
+        // Misma regla que en cancelarTurno(): solo tiene sentido reprogramar
+        // un turno que esté vigente (CONFIRMADO), no uno ya cancelado.
+        if (turno.getEstado() != EstadoTurno.CONFIRMADO) {
+            throw new IllegalStateException(
+                "Solo se pueden reprogramar turnos confirmados. Este turno ya está en estado " + turno.getEstado() + ".");
         }
         if (haySolapamiento(turno.getMedico(), nuevaFecha, nuevaHora, turno)) {
             throw new IllegalStateException(
@@ -231,6 +374,15 @@ public class GestorClinica {
     public void cancelarTurno(Turno turno) {
         if (!agenda.contains(turno)) {
             throw new IllegalArgumentException("El turno no pertenece a la agenda activa.");
+        }
+        // Regla de negocio: solo se puede cancelar un turno que esté
+        // CONFIRMADO. Si ya está CANCELADO no tiene sentido cancelarlo
+        // de nuevo, y si está COMPLETADO ya no está en la agenda activa
+        // (se movió al historial en completarTurno()), así que este
+        // chequeo cubre el caso real que puede pasar: doble cancelación.
+        if (turno.getEstado() != EstadoTurno.CONFIRMADO) {
+            throw new IllegalStateException(
+                "Solo se pueden cancelar turnos confirmados. Este turno ya está en estado " + turno.getEstado() + ".");
         }
         turno.setEstado(EstadoTurno.CANCELADO);
         turnoDAO.guardarAgendaCompleta(agenda);
@@ -252,6 +404,21 @@ public class GestorClinica {
 
     public List<Turno> obtenerAgenda() {
         return Collections.unmodifiableList(agenda);
+    }
+
+    /**
+     * Turnos activos (no cancelados) de un paciente puntual. Se usa
+     * en el flujo de "modificar o cancelar turno": el paciente se
+     * loguea y solo ve SUS turnos, no la agenda completa de la clínica.
+     */
+    public List<Turno> obtenerAgendaDePaciente(int dniPaciente) {
+        List<Turno> resultado = new ArrayList<>();
+        for (Turno t : agenda) {
+            if (t.getPaciente().getDni() == dniPaciente && t.getEstado() != EstadoTurno.CANCELADO) {
+                resultado.add(t);
+            }
+        }
+        return resultado;
     }
 
     public List<Turno> obtenerHistorial() {

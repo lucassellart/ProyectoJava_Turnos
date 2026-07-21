@@ -2,17 +2,21 @@ package mediturn;
 
 import mediturn.model.*;
 import mediturn.service.GestorClinica;
+import mediturn.service.TurnoFactory;
 import mediturn.thread.NotificadorConsola;
 import mediturn.thread.RecordatorioThread;
+import mediturn.util.Constantes;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Locale;
 import java.util.Scanner;
 
 /**
@@ -55,19 +59,13 @@ public class Main {
             int opcion = leerEntero("Elegí una opción: ");
             switch (opcion) {
                 case 1:
-                    menuPacientes();
+                    flujoSolicitarTurno();
                     break;
                 case 2:
-                    menuMedicos();
+                    flujoModificarTurno();
                     break;
                 case 3:
-                    menuTurnos();
-                    break;
-                case 4:
-                    menuRecordatorios();
-                    break;
-                case 5:
-                    exportarHistorial();
+                    flujoCancelarTurno();
                     break;
                 case 0:
                     salir = true;
@@ -78,7 +76,9 @@ public class Main {
         }
 
         // Si el hilo de recordatorios quedó corriendo, lo frenamos
-        // prolijamente antes de cerrar el programa.
+        // prolijamente antes de cerrar el programa. (En el flujo actual
+        // no se inicia desde acá, pero se deja el chequeo por las dudas
+        // se use en algún momento).
         if (hiloRecordatorios != null) {
             hiloRecordatorios.detener();
         }
@@ -88,12 +88,254 @@ public class Main {
 
     private static void mostrarMenuPrincipal() {
         System.out.println("\n----- Menú principal -----");
-        System.out.println("1. Gestión de pacientes");
-        System.out.println("2. Gestión de médicos");
-        System.out.println("3. Gestión de turnos");
-        System.out.println("4. Recordatorios automáticos");
-        System.out.println("5. Exportar historial a archivo .txt");
+        System.out.println("1. Solicitar turno");
+        System.out.println("2. Modificar turno");
+        System.out.println("3. Cancelar turno");
         System.out.println("0. Salir");
+    }
+
+    // =========================================================
+    //  FLUJO DE SOLICITUD DE TURNO (estilo Logimed)
+    //  Cobertura -> Sucursal -> Especialidad -> Prestación ->
+    //  Profesional -> Fecha/hora -> Login o registro -> Confirmar
+    // =========================================================
+
+    private static void flujoSolicitarTurno() {
+        System.out.println("\n===== Solicitar turno =====");
+
+        CoberturaMedica cobertura = elegirCoberturaMedica();
+
+        // Sucursal: la clínica tiene una sola sede por ahora, se
+        // muestra igual (como en Logimed) pero no se pide elegir.
+        Sucursal sucursal = Sucursal.CENTRO;
+        System.out.println("Sucursal: " + sucursal.getNombreLegible());
+
+        Especialidad especialidad = elegirEspecialidad();
+        String tipoTurno = elegirPrestacion(cobertura);
+
+        List<Medico> disponibles = gestor.buscarMedicosPorEspecialidad(especialidad);
+        if (disponibles.isEmpty()) {
+            System.out.println("No hay profesionales disponibles para esa especialidad por el momento.");
+            return;
+        }
+        Medico medico = elegirMedico(disponibles);
+
+        LocalDate fecha = elegirFecha(medico, null);
+        if (fecha == null) {
+            System.out.println("No hay fechas disponibles con ese profesional. Probá con otro médico.");
+            return;
+        }
+        LocalTime hora = elegirHorario(medico, fecha, null);
+
+        // OJO: acá va solo el DATO (el valor del consultorio o del link),
+        // no el texto completo. TurnoPresencial.getDetalle() y
+        // TurnoVirtual.getDetalle() ya anteponen "Consultorio:" / "Link:"
+        // solos — si acá repetimos esas palabras, queda duplicado
+        // (ej: "Consultorio: Consultorio a confirmar").
+        String detalleExtra = tipoTurno.equals(TurnoFactory.TIPO_PRESENCIAL)
+                ? "A confirmar"
+                : "Se envía por correo antes del turno";
+
+        Paciente paciente = loginORegistroPaciente(cobertura);
+        if (paciente == null) {
+            System.out.println("Operación cancelada.");
+            return;
+        }
+
+        try {
+            Turno turno = gestor.solicitarTurno(paciente.getDni(), medico.getDni(), fecha, hora, tipoTurno, detalleExtra);
+            System.out.println("\n¡Turno confirmado!");
+            mostrarTurno(turno);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("No se pudo confirmar el turno: " + e.getMessage());
+        }
+    }
+
+    /** Pide la prestación. VideoConsulta solo se ofrece si la cobertura es Particular. */
+    private static String elegirPrestacion(CoberturaMedica cobertura) {
+        boolean permiteVideoconsulta = cobertura == CoberturaMedica.PARTICULAR;
+
+        System.out.println("Prestación:");
+        System.out.println("1. Consulta Médica (presencial)");
+        if (permiteVideoconsulta) {
+            System.out.println("2. VideoConsulta (virtual)");
+        }
+
+        int opcion = leerEntero("Elegí una opción: ");
+        while (!(opcion == 1) && !(opcion == 2 && permiteVideoconsulta)) {
+            if (opcion == 2) {
+                System.out.println("La VideoConsulta solo está disponible para cobertura Particular.");
+            } else {
+                System.out.println("Opción inválida.");
+            }
+            opcion = leerEntero("Elegí una opción: ");
+        }
+        return (opcion == 1) ? TurnoFactory.TIPO_PRESENCIAL : TurnoFactory.TIPO_VIRTUAL;
+    }
+
+    private static Medico elegirMedico(List<Medico> medicos) {
+        System.out.println("Profesionales disponibles:");
+        for (int i = 0; i < medicos.size(); i++) {
+            Medico m = medicos.get(i);
+            System.out.println((i + 1) + ". " + m.getNombre() + " " + m.getApellido());
+        }
+        int opcion = leerEntero("Elegí un profesional: ");
+        while (opcion < 1 || opcion > medicos.size()) {
+            System.out.println("Opción inválida.");
+            opcion = leerEntero("Elegí un profesional: ");
+        }
+        return medicos.get(opcion - 1);
+    }
+
+    /**
+     * Pide DNI y contraseña (día+mes de nacimiento, como en Logimed).
+     * Si el DNI ya existe, valida la contraseña y devuelve ese paciente.
+     * Si el DNI no existe, asume que es la primera vez que saca un
+     * turno y ofrece registrarlo ahí mismo.
+     *
+     * @return el Paciente logueado o recién registrado, o null si se cancela.
+     */
+    private static Paciente loginORegistroPaciente(CoberturaMedica coberturaElegida) {
+        System.out.println("\n--- Identificate para confirmar el turno ---");
+        int dni = leerEntero("DNI: ");
+        Paciente existente = gestor.buscarPacientePorDni(dni);
+
+        if (existente == null) {
+            System.out.println("No encontramos ese DNI. Como es tu primera vez, te registramos.");
+            return registrarPacienteDesdeFlujoTurno(dni, coberturaElegida);
+        }
+
+        LocalDate fechaNacimiento = leerFechaNacimiento("Contraseña (día y mes de nacimiento, dd/mm): ");
+        try {
+            Paciente logueado = gestor.loginPaciente(dni, fechaNacimiento.getDayOfMonth(), fechaNacimiento.getMonthValue());
+            if (logueado == null) {
+                System.out.println("No encontramos ese DNI.");
+            }
+            return logueado;
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println(e.getMessage());
+            return null;
+        }
+    }
+
+    /** Registro rápido de un paciente nuevo, en medio del flujo de solicitud de turno. */
+    private static Paciente registrarPacienteDesdeFlujoTurno(int dni, CoberturaMedica cobertura) {
+        String nombre = leerTexto("Nombre: ");
+        String apellido = leerTexto("Apellido: ");
+        String telefono = leerTexto("Teléfono: ");
+        LocalDate fechaNacimiento = leerFecha("Fecha de nacimiento (dd/mm/aaaa): ");
+
+        try {
+            Paciente paciente = gestor.registrarPaciente(dni, nombre, apellido, telefono, cobertura, fechaNacimiento);
+            System.out.println("¡Listo, quedaste registrado!");
+            return paciente;
+        } catch (IllegalArgumentException e) {
+            System.out.println("No se pudo registrar: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // =========================================================
+    //  MODIFICAR / CANCELAR UN TURNO PROPIO
+    //  Comparten el mismo primer paso (identificarse y elegir cuál
+    //  turno), pero la lógica de qué hacer con ese turno es distinta
+    //  para cada caso, así que van en flujos separados.
+    // =========================================================
+
+    /**
+     * Identifica al paciente (DNI + contraseña) y le muestra sus turnos
+     * activos para que elija uno. Se comparte entre modificar y cancelar
+     * porque el paso de "identificarse y elegir el turno" es idéntico en
+     * los dos casos; lo único que cambia es qué se hace después.
+     *
+     * @param verbo texto para el mensaje del prompt (ej: "modificar", "cancelar")
+     * @return el turno elegido, o null si el paciente no existe, no tiene
+     *         turnos activos, o cancela la selección.
+     */
+    private static Turno identificarseYElegirTurnoPropio(String verbo) {
+        System.out.println("--- Identificate ---");
+        int dni = leerEntero("DNI: ");
+
+        if (gestor.buscarPacientePorDni(dni) == null) {
+            System.out.println("No encontramos ese DNI.");
+            return null;
+        }
+
+        LocalDate fechaNacimiento = leerFechaNacimiento("Contraseña (día y mes de nacimiento, dd/mm): ");
+        Paciente paciente;
+        try {
+            paciente = gestor.loginPaciente(dni, fechaNacimiento.getDayOfMonth(), fechaNacimiento.getMonthValue());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println(e.getMessage());
+            return null;
+        }
+        if (paciente == null) {
+            System.out.println("No encontramos ese DNI.");
+            return null;
+        }
+
+        List<Turno> misTurnos = gestor.obtenerAgendaDePaciente(dni);
+        if (misTurnos.isEmpty()) {
+            System.out.println("No tenés turnos activos.");
+            return null;
+        }
+
+        System.out.println("\nTus turnos:");
+        for (int i = 0; i < misTurnos.size(); i++) {
+            System.out.print((i + 1) + ". ");
+            mostrarTurno(misTurnos.get(i));
+        }
+        int indice = leerEntero("Escribí el número del turno a " + verbo + " (0 para cancelar la operación): ");
+        if (indice < 1 || indice > misTurnos.size()) {
+            return null;
+        }
+        return misTurnos.get(indice - 1);
+    }
+
+    private static void flujoModificarTurno() {
+        System.out.println("\n===== Modificar turno =====");
+        Turno turno = identificarseYElegirTurnoPropio("modificar");
+        if (turno == null) {
+            return;
+        }
+
+        try {
+            LocalDate nuevaFecha = elegirFecha(turno.getMedico(), turno);
+            if (nuevaFecha == null) {
+                System.out.println("No hay fechas disponibles con ese profesional para reprogramar.");
+                return;
+            }
+            LocalTime nuevaHora = elegirHorario(turno.getMedico(), nuevaFecha, turno);
+            gestor.reprogramarTurno(turno, nuevaFecha, nuevaHora);
+            System.out.println("Turno modificado con éxito:");
+            mostrarTurno(turno);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("No se pudo modificar el turno: " + e.getMessage());
+        }
+    }
+
+    private static void flujoCancelarTurno() {
+        System.out.println("\n===== Cancelar turno =====");
+        Turno turno = identificarseYElegirTurnoPropio("cancelar");
+        if (turno == null) {
+            return;
+        }
+
+        System.out.println("\nVas a cancelar este turno:");
+        mostrarTurno(turno);
+        System.out.print("¿Confirmás la cancelación? (s/n): ");
+        if (!scanner.nextLine().trim().equalsIgnoreCase("s")) {
+            System.out.println("Operación cancelada.");
+            return;
+        }
+
+        try {
+            gestor.cancelarTurno(turno);
+            System.out.println("Turno cancelado con éxito:");
+            mostrarTurno(turno);
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("No se pudo cancelar el turno: " + e.getMessage());
+        }
     }
 
     // =========================================================
@@ -144,8 +386,9 @@ public class Main {
             String apellido = leerTexto("Apellido: ");
             String telefono = leerTexto("Teléfono: ");
             CoberturaMedica cobertura = elegirCoberturaMedica();
+            LocalDate fechaNacimiento = leerFecha("Fecha de nacimiento (dd/mm/aaaa): ");
 
-            Paciente paciente = gestor.registrarPaciente(dni, nombre, apellido, telefono, cobertura);
+            Paciente paciente = gestor.registrarPaciente(dni, nombre, apellido, telefono, cobertura, fechaNacimiento);
             System.out.println("Paciente registrado: " + paciente.getNombre() + " " + paciente.getApellido());
         } catch (IllegalArgumentException e) {
             // Por ejemplo, DNI duplicado: GestorClinica valida esto
@@ -711,6 +954,26 @@ public class Main {
         }
     }
 
+    /**
+     * Lee día y mes (sin año) para la "contraseña" del login del
+     * paciente, que es su fecha de nacimiento. Se completa un año
+     * fijo (2000) solo porque LocalDate.parse() lo exige, pero
+     * validarContrasena() en Paciente nunca compara el año.
+     */
+    private static LocalDate leerFechaNacimiento(String mensaje) {
+        DateTimeFormatter formatoCorto = DateTimeFormatter.ofPattern("dd/MM");
+        while (true) {
+            System.out.print(mensaje);
+            String linea = scanner.nextLine().trim();
+            try {
+                java.time.MonthDay diaYMes = java.time.MonthDay.parse(linea, formatoCorto);
+                return diaYMes.atYear(2000);
+            } catch (DateTimeParseException e) {
+                System.out.println("Formato inválido. Usá dd/mm (ej: 25/12).");
+            }
+        }
+    }
+
     private static LocalTime leerHora(String mensaje) {
         while (true) {
             System.out.print(mensaje);
@@ -721,6 +984,71 @@ public class Main {
                 System.out.println("Formato inválido. Usá hh:mm (ej: 14:30).");
             }
         }
+    }
+
+    /**
+     * Arma la lista de fechas disponibles con un médico (estilo Logimed:
+     * el paciente elige entre opciones ya validadas, no escribe una fecha
+     * a mano). Se ofrecen los próximos Constantes.DIAS_DISPONIBILIDAD días
+     * de lunes a viernes (la clínica no atiende fines de semana), y solo
+     * se muestran los días donde quede al menos un horario libre con ese
+     * médico.
+     *
+     * @param turnoAIgnorar si no es null, ese turno no cuenta como "ocupado"
+     *                      al calcular disponibilidad (se usa al reprogramar,
+     *                      para no chocar contra el propio turno que se mueve).
+     * @return la fecha elegida, o null si no hay ninguna fecha con lugar.
+     */
+    private static LocalDate elegirFecha(Medico medico, Turno turnoAIgnorar) {
+        List<LocalDate> fechasConLugar = new java.util.ArrayList<>();
+        LocalDate hoy = LocalDate.now();
+
+        for (int i = 1; i <= Constantes.DIAS_DISPONIBILIDAD; i++) {
+            LocalDate candidata = hoy.plusDays(i);
+            DayOfWeek dia = candidata.getDayOfWeek();
+            if (dia == DayOfWeek.SATURDAY || dia == DayOfWeek.SUNDAY) {
+                continue;
+            }
+            if (!gestor.obtenerHorariosDisponibles(medico, candidata, turnoAIgnorar).isEmpty()) {
+                fechasConLugar.add(candidata);
+            }
+        }
+
+        if (fechasConLugar.isEmpty()) {
+            return null;
+        }
+
+        DateTimeFormatter formatoLargo = DateTimeFormatter.ofPattern("EEEE dd/MM/yyyy", Locale.of("es", "AR"));
+        System.out.println("\nFechas disponibles con " + medico.getNombre() + " " + medico.getApellido() + ":");
+        for (int i = 0; i < fechasConLugar.size(); i++) {
+            System.out.println((i + 1) + ". " + fechasConLugar.get(i).format(formatoLargo));
+        }
+        int opcion = leerEntero("Elegí una fecha: ");
+        while (opcion < 1 || opcion > fechasConLugar.size()) {
+            System.out.println("Opción inválida.");
+            opcion = leerEntero("Elegí una fecha: ");
+        }
+        return fechasConLugar.get(opcion - 1);
+    }
+
+    /**
+     * Arma la lista de horarios disponibles de un médico en una fecha ya
+     * elegida (franja de atención de la clínica, sin los horarios ya
+     * ocupados) y devuelve el que elige el paciente.
+     */
+    private static LocalTime elegirHorario(Medico medico, LocalDate fecha, Turno turnoAIgnorar) {
+        List<LocalTime> horarios = gestor.obtenerHorariosDisponibles(medico, fecha, turnoAIgnorar);
+
+        System.out.println("\nHorarios disponibles para el " + fecha.format(FORMATO_FECHA) + ":");
+        for (int i = 0; i < horarios.size(); i++) {
+            System.out.println((i + 1) + ". " + horarios.get(i).format(FORMATO_HORA));
+        }
+        int opcion = leerEntero("Elegí un horario: ");
+        while (opcion < 1 || opcion > horarios.size()) {
+            System.out.println("Opción inválida.");
+            opcion = leerEntero("Elegí un horario: ");
+        }
+        return horarios.get(opcion - 1);
     }
 
     /** Muestra el enum CoberturaMedica como menú numerado y devuelve la opción elegida. */

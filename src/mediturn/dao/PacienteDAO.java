@@ -10,10 +10,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.time.LocalDate;
+
 import mediturn.model.CoberturaMedica;
 import mediturn.model.Paciente;
 import mediturn.util.Constantes;
 import mediturn.util.CsvUtil;
+import mediturn.util.FormateadorFecha;
 import mediturn.util.ValidacionUtil;
 
 /**
@@ -29,8 +32,8 @@ import mediturn.util.ValidacionUtil;
 
 public class PacienteDAO {
    
-    // dni;nombre;apellido;telefono;coberturaMedica
-    private static final int CANTIDAD_CAMPOS = 6;
+    // dni;nombre;apellido;telefono;coberturaMedica;activo;fechaNacimiento
+    private static final int CANTIDAD_CAMPOS = 7;
 
     /**
      * Agrega un paciente nuevo al final de pacientes.txt.
@@ -55,10 +58,24 @@ public class PacienteDAO {
      * programa), devolvemos lista vacía en vez de romper.
      */
     public List<Paciente> listarTodos() {
+        return listarDesdeArchivo(Constantes.ARCHIVO_PACIENTES);
+    }
+
+    /**
+     * Lee cualquier archivo con formato de pacientes.txt y devuelve
+     * la lista reconstruida. Se generalizó a partir de listarTodos()
+     * para poder reutilizarla también con pacientes-ejemplo.txt (la
+     * precarga inicial de pacientes que administra GestorClinica).
+     *
+     * Si el archivo no existe todavía, se devuelve una lista vacía
+     * sin mostrar ningún mensaje: no existir es un estado normal la
+     * primera vez que corre el sistema, no un error que el usuario
+     * necesite ver en pantalla.
+     */
+    public List<Paciente> listarDesdeArchivo(String ruta) {
         List<Paciente> pacientes = new ArrayList<>();
 
-        try (BufferedReader reader = new BufferedReader(
-                new FileReader(Constantes.ARCHIVO_PACIENTES))) {
+        try (BufferedReader reader = new BufferedReader(new FileReader(ruta))) {
             String linea;
             while ((linea = reader.readLine()) != null) {
                 Paciente paciente = parsearLinea(linea);
@@ -67,8 +84,7 @@ public class PacienteDAO {
                 }
             }
         } catch (IOException e) {
-            System.out.println("Aún no existe " + Constantes.ARCHIVO_PACIENTES
-                    + " (se creará al guardar el primer paciente).");
+            // El archivo todavía no existe: se ignora en silencio.
         }
 
         return pacientes;
@@ -142,7 +158,8 @@ public class PacienteDAO {
                 paciente.getApellido(),
                 paciente.getTelefono(),
                 paciente.getCoberturaMedica().name(),
-                String.valueOf(paciente.isActivo())
+                String.valueOf(paciente.isActivo()),
+                FormateadorFecha.formatearFecha(paciente.getFechaNacimiento())
         );
     }
 
@@ -170,8 +187,9 @@ public class PacienteDAO {
             String telefono = campos[3];
             CoberturaMedica cobertura = CoberturaMedica.valueOf(campos[4]);
             boolean activo = Boolean.parseBoolean(campos[5]);
+            LocalDate fechaNacimiento = FormateadorFecha.parsearFecha(campos[6]);
 
-            Paciente paciente = new Paciente(dni, nombre, apellido, cobertura, telefono);
+            Paciente paciente = new Paciente(dni, nombre, apellido, cobertura, telefono, fechaNacimiento);
             paciente.setActivo(activo);
             return paciente;
         } catch (IllegalArgumentException e) {
